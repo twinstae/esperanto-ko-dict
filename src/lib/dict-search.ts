@@ -36,6 +36,8 @@ const PREFIXES_LONGEST_FIRST = [
 const SUFFIXES_LONGEST_FIRST = [
 	"ojn",
 	"oj",
+	// Plural -j (belaj → bela; novaj → nova) — after -oj/-ojn so spionoj still uses -oj
+	"j",
 	// Accusative -n before any -on parse: paroladon → parolado + n, not parolad + on
 	"n",
 	"as",
@@ -171,6 +173,11 @@ function expandInflectionKeysFromSurface(
 		const stem = w.slice(0, -suf.length);
 		if (stem.length < 1) continue;
 
+		if (suf === "j") {
+			expandInflectionKeysFromSurface(stem, out, seen, depth + 1, allowBare, variants);
+			return;
+		}
+
 		if (suf === "n") {
 			if (shouldStripFinalAccusativeN(w)) {
 				expandInflectionKeysFromSurface(stem, out, seen, depth + 1, allowBare, variants);
@@ -233,13 +240,59 @@ function expandInflectionKeysFromSurface(
  * Headword lookup keys to try in order (first successful IndexedDB match wins).
  *
  * Covers typical Esperanto surface forms, including (among others):
- * plural / case (-oj, -ojn); accusative (-n before -o: saluton, paroladon → parolado + n);
+ * plural / case (-oj, -ojn, -j for adjective plural belaj → bela); accusative (-n before -o: saluton, paroladon → parolado + n);
+ * mal-/mis- + hyphen reinjection (malnova → malnov-a before nov-a);
  * verbal endings (-as, -is, -os, -us, -u, infinitive -i);
  * accusative -n (belan → bel-a; long …en verb roots skip false -n);
  * compound endings -eble / -ebla / -ado before bare -o; prefixes mal-, mis-, ne-, sen-, ek-, re-, dis-, for-, fi-, bo-, ge-, pli-;
  * iĝ / ig stems (proksimiĝis → proksim-a; plibonigi → bon-a); bare verb stem (kompren → kompren-i);
  * unhyphenated correlatives (tien → tie). Ellipsis headwords and gloss fallback are handled in {@link searchDictionaryEntries}.
  */
+function expandLemmaLookupKeysCore(norm: string): string[] {
+	const out: string[] = [];
+	const seen = new Set<string>();
+
+	pushUnique(out, seen, norm);
+
+	if (norm.includes("-")) {
+		return out;
+	}
+
+	if (/(ismo|ism)$/u.test(norm)) {
+		return out;
+	}
+
+	const morphVariants = expandMorphologicalVariants(norm);
+
+	for (const v of morphVariants) {
+		if (v !== norm) {
+			pushUnique(out, seen, v);
+		}
+	}
+
+	for (const v of morphVariants) {
+		if (!shouldExpandInflection(v, morphVariants)) continue;
+		const allowBare = v !== norm;
+		expandInflectionKeysFromSurface(v, out, seen, 0, allowBare, morphVariants);
+	}
+
+	return out;
+}
+
+/** malnova → mal + nov-a; malnovaj → mal + nov-a (via novaj → nova). */
+function injectMalMisHyphenPrefixes(norm: string, out: string[], seen: Set<string>) {
+	for (const p of ["mal", "mis"] as const) {
+		if (norm.length < p.length + 3 || !norm.startsWith(p)) continue;
+		const rest = norm.slice(p.length);
+		const subKeys = expandLemmaLookupKeysCore(rest);
+		for (const k of subKeys) {
+			if (k.includes("-")) {
+				pushUnique(out, seen, p + k);
+			}
+		}
+	}
+}
+
 export function expandLemmaLookupKeys(raw: string): string[] {
 	const out: string[] = [];
 	const seen = new Set<string>();
@@ -262,6 +315,8 @@ export function expandLemmaLookupKeys(raw: string): string[] {
 			pushUnique(out, seen, v);
 		}
 	}
+
+	injectMalMisHyphenPrefixes(norm, out, seen);
 
 	for (const v of morphVariants) {
 		if (!shouldExpandInflection(v, morphVariants)) continue;

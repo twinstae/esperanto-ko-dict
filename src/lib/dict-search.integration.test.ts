@@ -142,4 +142,11 @@ describe("searchDictionaryEntries against eo-ko.json", () => {
 		const r = searchDictionaryEntries(entries, "kompren");
 		expectHasWord(r, "kompren-i");
 	});
+
+	test("malnova / malnovaj / Malnovajn → nov-a (mal- + plural/case)", () => {
+		for (const q of ["malnova", "malnovaj", "Malnovajn"]) {
+			const r = searchDictionaryEntries(entries, q);
+			expectHasWord(r, "nov-a");
+		}
+	});
 });

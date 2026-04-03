@@ -37,6 +37,14 @@ describe("expandLemmaLookupKeys", () => {
 		expect(keys).toContain("grand-a");
 	});
 
+	test("mal- + hyphen keys (malnov-a) and plural -j (malnovaj)", () => {
+		expect(expandLemmaLookupKeys("malnova")).toContain("malnov-a");
+		expect(expandLemmaLookupKeys("malnovaj")).toContain("malnov-a");
+		const keysJn = expandLemmaLookupKeys("malnovajn");
+		expect(keysJn).toContain("malnov-a");
+		expect(keysJn.indexOf("malnov-a")).toBeLessThan(keysJn.indexOf("nov-a"));
+	});
+
 	test("tense + iĝ / ig: proksimiĝis → proksim-a; plibonigi → bon-a", () => {
 		expect(expandLemmaLookupKeys("proksimiĝis")).toContain("proksim-a");
 		expect(expandLemmaLookupKeys("plibonigi")).toContain("bon-a");
