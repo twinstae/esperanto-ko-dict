@@ -7,23 +7,54 @@ export function toWordNormCi(word: string): string {
 }
 
 /**
- * Longest-match suffix strip (Esperanto), then BRO-style hyphen lemmas (e.g. am-i, katekol-o).
- * Order matters: try longer endings before shorter (e.g. -on before -n).
+ * Prefixes that form a shorter surface form; when that shorter form is in the morph set,
+ * we skip inflection expansion on the prefixed word (malgranda → grand-a, not malgrand-o).
+ */
+const PREFIX_STRIP_SKIP_INFLECTION = ["mal", "mis"] as const;
+
+/**
+ * Verbal / derivational prefixes (strip to try the bare stem).
+ */
+const PREFIXES_LONGEST_FIRST = [
+	"mal",
+	"mis",
+	"ne",
+	"sen",
+	"ek",
+	"re",
+	"dis",
+	"for",
+	"fi",
+	"bo",
+	"ge",
+	"pli",
+] as const;
+
+/**
+ * Longest-match suffix strip (Esperanto). Order: grammatical + compound (eble, ado) before single letters.
  */
 const SUFFIXES_LONGEST_FIRST = [
 	"ojn",
-	"on",
 	"oj",
+	// Accusative -n before any -on parse: paroladon → parolado + n, not parolad + on
+	"n",
 	"as",
 	"is",
 	"os",
 	"us",
+	"u",
+	// Compound endings before bare -o / -i (parolado → parol, not parolad- + o)
+	"eble",
+	"ebla",
+	"ado",
+	"i",
 	"o",
 	"a",
 	"e",
-	"i",
-	"u",
 ] as const;
+
+const IĜ = "iĝ";
+const IG = "ig";
 
 function pushUnique(out: string[], seen: Set<string>, key: string) {
 	if (!key || seen.has(key)) return;
@@ -31,8 +62,183 @@ function pushUnique(out: string[], seen: Set<string>, key: string) {
 	out.push(key);
 }
 
+function isEsperantoLettersOnly(s: string): boolean {
+	return /^[a-zĉĝĥĵŝŭ]+$/u.test(s);
+}
+
+/** Bare root → BRO hyphen lemmas (verb / noun / adjective). */
+function pushBareRootHyphens(stem: string, out: string[], seen: Set<string>) {
+	if (stem.length < 2 || stem.length > 14 || !isEsperantoLettersOnly(stem)) return;
+	pushUnique(out, seen, toWordNormCi(`${stem}-i`));
+	pushUnique(out, seen, toWordNormCi(`${stem}-o`));
+	pushUnique(out, seen, toWordNormCi(`${stem}-a`));
+}
+
+/**
+ * Expand mal-/pli-/re-/… and compound endings (-eble, -ado) until fixpoint.
+ */
+export function expandMorphologicalVariants(norm: string): Set<string> {
+	const set = new Set<string>([norm]);
+	let changed = true;
+	while (changed) {
+		changed = false;
+		for (const w of [...set]) {
+			for (const p of PREFIXES_LONGEST_FIRST) {
+				if (w.length >= p.length + 3 && w.startsWith(p)) {
+					const n = w.slice(p.length);
+					if (!set.has(n)) {
+						set.add(n);
+						changed = true;
+					}
+				}
+			}
+			for (const s of ["eble", "ebla", "ado"] as const) {
+				if (w.length > s.length + 2 && w.endsWith(s)) {
+					const n = w.slice(0, -s.length);
+					if (!set.has(n)) {
+						set.add(n);
+						changed = true;
+					}
+				}
+			}
+			if (w.length > 5 && w.endsWith("ebl") && !w.endsWith("eble") && !w.endsWith("ebla")) {
+				const n = w.slice(0, -3);
+				if (!set.has(n)) {
+					set.add(n);
+					changed = true;
+				}
+			}
+		}
+	}
+	return set;
+}
+
+/**
+ * Accusative -n (belan → bela). Skip long …en roots (kompren, skriben) so we do not peel verb stems.
+ * Short correlatives (tien, kien) still strip.
+ */
+function shouldStripFinalAccusativeN(w: string): boolean {
+	if (!w.endsWith("n") || w.length < 3) return false;
+	if (w.length > 5 && w.endsWith("en")) return false;
+	return true;
+}
+
+function shouldExpandInflection(w: string, variants: Set<string>): boolean {
+	for (const p of PREFIX_STRIP_SKIP_INFLECTION) {
+		if (w.length >= p.length + 3 && w.startsWith(p)) {
+			const stripped = w.slice(p.length);
+			if (variants.has(stripped)) return false;
+		}
+	}
+	return true;
+}
+
+function pushStemAfterVerbalSuffix(stem: string, out: string[], seen: Set<string>, variants: Set<string>) {
+	pushUnique(out, seen, toWordNormCi(`${stem}-i`));
+	if (stem.endsWith(IĜ)) {
+		const base = stem.slice(0, -IĜ.length);
+		if (base.length >= 2) {
+			pushBareRootHyphens(base, out, seen);
+		}
+	} else if (stem.endsWith(IG) && !stem.endsWith(IĜ)) {
+		const base = stem.slice(0, -IG.length);
+		if (base.length >= 2) {
+			pushBareRootHyphens(base, out, seen);
+			for (const mv of expandMorphologicalVariants(base)) {
+				if (mv !== base) {
+					expandInflectionKeysFromSurface(mv, out, seen, 0, true, variants);
+				}
+			}
+		}
+	}
+}
+
+function expandInflectionKeysFromSurface(
+	w: string,
+	out: string[],
+	seen: Set<string>,
+	depth: number,
+	allowBare: boolean,
+	variants: Set<string>,
+) {
+	if (depth > 6) return;
+
+	/** Unhyphenated surface (e.g. tie) and verb roots typed without ending (kompren → kompren-i). */
+	pushUnique(out, seen, w);
+
+	for (const suf of SUFFIXES_LONGEST_FIRST) {
+		if (w.length <= suf.length || !w.endsWith(suf)) continue;
+		const stem = w.slice(0, -suf.length);
+		if (stem.length < 1) continue;
+
+		if (suf === "n") {
+			if (shouldStripFinalAccusativeN(w)) {
+				expandInflectionKeysFromSurface(stem, out, seen, depth + 1, allowBare, variants);
+				return;
+			}
+			continue;
+		}
+
+		if (suf === "as" || suf === "is" || suf === "os" || suf === "us" || suf === "u") {
+			pushStemAfterVerbalSuffix(stem, out, seen, variants);
+			return;
+		}
+
+		if (suf === "i") {
+			pushUnique(out, seen, toWordNormCi(`${stem}-i`));
+			pushStemAfterVerbalSuffix(stem, out, seen, variants);
+			return;
+		}
+
+		if (suf === "ojn" || suf === "oj") {
+			pushUnique(out, seen, toWordNormCi(`${stem}-o`));
+			pushUnique(out, seen, toWordNormCi(`${stem}-i`));
+			return;
+		}
+
+		if (suf === "o") {
+			pushUnique(out, seen, toWordNormCi(`${stem}-o`));
+			pushUnique(out, seen, toWordNormCi(`${stem}-i`));
+			return;
+		}
+
+		if (suf === "eble" || suf === "ebla" || suf === "ado") {
+			pushBareRootHyphens(stem, out, seen);
+			return;
+		}
+
+		if (suf === "a") {
+			pushUnique(out, seen, toWordNormCi(`${stem}-a`));
+			pushUnique(out, seen, toWordNormCi(`${stem}-o`));
+			pushUnique(out, seen, toWordNormCi(`${stem}-i`));
+			return;
+		}
+
+		if (suf === "e") {
+			pushUnique(out, seen, toWordNormCi(`${stem}-e`));
+			pushUnique(out, seen, toWordNormCi(`${stem}-o`));
+			pushUnique(out, seen, toWordNormCi(`${stem}-i`));
+			return;
+		}
+	}
+
+	const bareFallback =
+		allowBare || (depth === 0 && w.length >= 4 && isEsperantoLettersOnly(w));
+	if (bareFallback) {
+		pushBareRootHyphens(w, out, seen);
+	}
+}
+
 /**
  * Headword lookup keys to try in order (first successful IndexedDB match wins).
+ *
+ * Covers typical Esperanto surface forms, including (among others):
+ * plural / case (-oj, -ojn); accusative (-n before -o: saluton, paroladon → parolado + n);
+ * verbal endings (-as, -is, -os, -us, -u, infinitive -i);
+ * accusative -n (belan → bel-a; long …en verb roots skip false -n);
+ * compound endings -eble / -ebla / -ado before bare -o; prefixes mal-, mis-, ne-, sen-, ek-, re-, dis-, for-, fi-, bo-, ge-, pli-;
+ * iĝ / ig stems (proksimiĝis → proksim-a; plibonigi → bon-a); bare verb stem (kompren → kompren-i);
+ * unhyphenated correlatives (tien → tie). Ellipsis headwords and gloss fallback are handled in {@link searchDictionaryEntries}.
  */
 export function expandLemmaLookupKeys(raw: string): string[] {
 	const out: string[] = [];
@@ -41,35 +247,26 @@ export function expandLemmaLookupKeys(raw: string): string[] {
 	const norm = normalizeLemmaForLookup(raw);
 	pushUnique(out, seen, norm);
 
-	// BRO headword already has hyphen (e.g. katekol-o) — only exact match
 	if (norm.includes("-")) {
 		return out;
 	}
 
-	const w = norm;
-	// Do not treat final -o as a noun ending in names like Kateĥismo (…ismo); use gloss search instead.
-	if (/(ismo|ism)$/u.test(w)) {
+	if (/(ismo|ism)$/u.test(norm)) {
 		return out;
 	}
-	for (const suf of SUFFIXES_LONGEST_FIRST) {
-		if (w.length <= suf.length || !w.endsWith(suf)) continue;
-		const stem = w.slice(0, -suf.length);
-		if (stem.length < 1) continue;
 
-		if (suf === "as" || suf === "is" || suf === "os" || suf === "us" || suf === "u") {
-			pushUnique(out, seen, toWordNormCi(`${stem}-i`));
-		} else if (suf === "on" || suf === "ojn" || suf === "oj") {
-			pushUnique(out, seen, toWordNormCi(`${stem}-i`));
-		} else if (suf === "i") {
-			pushUnique(out, seen, toWordNormCi(`${stem}-i`));
-		} else if (suf === "o") {
-			pushUnique(out, seen, toWordNormCi(`${stem}-o`));
-			pushUnique(out, seen, toWordNormCi(`${stem}-i`));
-		} else if (suf === "a" || suf === "e") {
-			pushUnique(out, seen, toWordNormCi(`${stem}-o`));
-			pushUnique(out, seen, toWordNormCi(`${stem}-i`));
+	const morphVariants = expandMorphologicalVariants(norm);
+
+	for (const v of morphVariants) {
+		if (v !== norm) {
+			pushUnique(out, seen, v);
 		}
-		break;
+	}
+
+	for (const v of morphVariants) {
+		if (!shouldExpandInflection(v, morphVariants)) continue;
+		const allowBare = v !== norm;
+		expandInflectionKeysFromSurface(v, out, seen, 0, allowBare, morphVariants);
 	}
 
 	return out;

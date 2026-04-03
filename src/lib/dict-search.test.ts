@@ -3,6 +3,7 @@ import type { DictEntry } from "./dict-types";
 import {
 	ellipsisHeadwordMatch,
 	expandLemmaLookupKeys,
+	expandMorphologicalVariants,
 	meaningContainsQuery,
 	searchByHeadwordKeys,
 	searchDictionaryEntries,
@@ -13,8 +14,103 @@ describe("expandLemmaLookupKeys", () => {
 	test("-a / -e adjective endings add stem-o and stem-i", () => {
 		const keys = expandLemmaLookupKeys("bela");
 		expect(keys).toContain("bela");
+		expect(keys).toContain("bel-a");
 		expect(keys).toContain("bel-o");
 		expect(keys).toContain("bel-i");
+	});
+
+	test("plural -oj / -ojn and accusative -n prefer noun stem-o", () => {
+		const keys = expandLemmaLookupKeys("spionoj");
+		expect(keys).toContain("spion-o");
+		expect(keys).toContain("spion-i");
+	});
+
+	test("compound -eble / -ebla / -ado strip before bare -o", () => {
+		expect(expandLemmaLookupKeys("kompreneble")).toContain("kompren-i");
+		expect(expandLemmaLookupKeys("parolado")).toContain("parol-i");
+	});
+
+	test("mal- prefix: inflection expands on stripped stem", () => {
+		const v = expandMorphologicalVariants("malgranda");
+		expect(v.has("granda")).toBe(true);
+		const keys = expandLemmaLookupKeys("malgranda");
+		expect(keys).toContain("grand-a");
+	});
+
+	test("tense + iĝ / ig: proksimiĝis → proksim-a; plibonigi → bon-a", () => {
+		expect(expandLemmaLookupKeys("proksimiĝis")).toContain("proksim-a");
+		expect(expandLemmaLookupKeys("plibonigi")).toContain("bon-a");
+	});
+
+	test("accusative -n: belan → bel-a; long …en roots do not strip n", () => {
+		expect(expandLemmaLookupKeys("belan")).toContain("bel-a");
+		expect(expandLemmaLookupKeys("kompren")).toContain("kompren-i");
+	});
+
+	test("tien resolves to tie before ti-o", () => {
+		const keys = expandLemmaLookupKeys("tien");
+		expect(keys.indexOf("tie")).toBeLessThan(keys.indexOf("ti-o"));
+	});
+});
+
+describe("searchByHeadwordKeys (morphology)", () => {
+	function one(entries: DictEntry[], q: string): string | undefined {
+		return searchByHeadwordKeys(entries, q)[0]?.word;
+	}
+
+	test("plural noun", () => {
+		const entries: DictEntry[] = [{ word: "spion-o", broLevel: "G1", meaning: "" }];
+		expect(one(entries, "spionoj")).toBe("spion-o");
+	});
+
+	test("-eble", () => {
+		const entries: DictEntry[] = [{ word: "kompren-i", broLevel: "G1", meaning: "" }];
+		expect(one(entries, "kompreneble")).toBe("kompren-i");
+	});
+
+	test("-ado", () => {
+		const entries: DictEntry[] = [{ word: "parol-i", broLevel: "G1", meaning: "" }];
+		expect(one(entries, "parolado")).toBe("parol-i");
+	});
+
+	test("-ado + accusative -n (paroladon)", () => {
+		const entries: DictEntry[] = [{ word: "parol-i", broLevel: "G1", meaning: "" }];
+		expect(one(entries, "paroladon")).toBe("parol-i");
+	});
+
+	test("mal- + adjective", () => {
+		const entries: DictEntry[] = [{ word: "grand-a", broLevel: "G1", meaning: "" }];
+		expect(one(entries, "malgranda")).toBe("grand-a");
+	});
+
+	test("mal- + adjective (diskreta)", () => {
+		const entries: DictEntry[] = [{ word: "diskret-a", broLevel: "G1", meaning: "" }];
+		expect(one(entries, "maldiskreta")).toBe("diskret-a");
+	});
+
+	test("iĝ + past", () => {
+		const entries: DictEntry[] = [{ word: "proksim-a", broLevel: "G1", meaning: "" }];
+		expect(one(entries, "proksimiĝis")).toBe("proksim-a");
+	});
+
+	test("pli- + ig", () => {
+		const entries: DictEntry[] = [{ word: "bon-a", broLevel: "G1", meaning: "" }];
+		expect(one(entries, "plibonigi")).toBe("bon-a");
+	});
+
+	test("accusative -n on adjective", () => {
+		const entries: DictEntry[] = [{ word: "bel-a", broLevel: "G1", meaning: "" }];
+		expect(one(entries, "belan")).toBe("bel-a");
+	});
+
+	test("tien → tie", () => {
+		const entries: DictEntry[] = [{ word: "tie", broLevel: "G1", meaning: "" }];
+		expect(one(entries, "tien")).toBe("tie");
+	});
+
+	test("bare verb stem", () => {
+		const entries: DictEntry[] = [{ word: "kompren-i", broLevel: "G1", meaning: "" }];
+		expect(one(entries, "kompren")).toBe("kompren-i");
 	});
 });
 

@@ -77,9 +77,6 @@ import Layout from "../../layouts/Layout.astro";
 			return;
 		}
 
-		const title = document.querySelector("title");
-		if (title) title.textContent = `${lemma} — Esperanto–Korean`;
-
 		try {
 			await ensureDictLoaded();
 			const [entries, linkCtx] = await Promise.all([
@@ -95,20 +92,66 @@ import Layout from "../../layouts/Layout.astro";
 				return;
 			}
 
-			const heading = el("h1", { class: "lemma", text: entries[0]?.word ?? lemma });
-			root.appendChild(heading);
+			const title = document.querySelector("title");
+			if (title) {
+				title.textContent =
+					entries.length === 1
+						? `${entries[0]?.word ?? lemma} — Esperanto–Korean`
+						: `${lemma} (${entries.length}) — Esperanto–Korean`;
+			}
 
 			const base = import.meta.env.BASE_URL;
-			const list = el("ol", { class: "entries" });
+
+			if (entries.length === 1) {
+				const sole = entries[0];
+				if (!sole) return;
+				root.appendChild(el("h1", { class: "lemma", text: sole.word ?? lemma }));
+				const list = el("ol", { class: "entries entries--single" });
+				const li = el("li", { class: "entry" });
+				if (sole.broLevel) {
+					const badge = document.createElement("span");
+					badge.className = "bro-badge";
+					badge.setAttribute("title", "BRO level");
+					badge.textContent = sole.broLevel;
+					li.appendChild(badge);
+				}
+				const meaningP = el("p", { class: "meaning" });
+				meaningP.appendChild(renderMeaningToFragment(sole.meaning, linkCtx, base, lemma));
+				li.appendChild(meaningP);
+				list.appendChild(li);
+				root.appendChild(list);
+				return;
+			}
+
+			const titleBlock = document.createElement("div");
+			titleBlock.className = "lemma-block";
+			const h1 = el("h1", { class: "lemma lemma--query", text: `“${lemma}”` });
+			titleBlock.appendChild(h1);
+			const hint = el("p", {
+				class: "results-hint",
+				text: `${entries.length} dictionary entries`,
+			});
+			titleBlock.appendChild(hint);
+			root.appendChild(titleBlock);
+
+			const list = el("ol", { class: "entries entries--multi" });
 			for (const e of entries) {
 				const li = el("li", { class: "entry" });
+				const head = document.createElement("div");
+				head.className = "entry-head";
+				const wordLink = document.createElement("a");
+				wordLink.className = "entry-word";
+				wordLink.href = wordsPageHref(e.word, base);
+				wordLink.textContent = e.word;
+				head.appendChild(wordLink);
 				if (e.broLevel) {
 					const badge = document.createElement("span");
 					badge.className = "bro-badge";
 					badge.setAttribute("title", "BRO level");
 					badge.textContent = e.broLevel;
-					li.appendChild(badge);
+					head.appendChild(badge);
 				}
+				li.appendChild(head);
 				const meaningP = el("p", { class: "meaning" });
 				meaningP.appendChild(renderMeaningToFragment(e.meaning, linkCtx, base, lemma));
 				li.appendChild(meaningP);
@@ -212,6 +255,10 @@ import Layout from "../../layouts/Layout.astro";
 		color: #b00020;
 	}
 
+	.lemma-block {
+		margin-bottom: 1rem;
+	}
+
 	.lemma {
 		margin: 0 0 1rem;
 		font-size: 1.75rem;
@@ -219,13 +266,61 @@ import Layout from "../../layouts/Layout.astro";
 		letter-spacing: -0.02em;
 	}
 
+	.lemma--query {
+		margin-bottom: 0.35rem;
+	}
+
+	.results-hint {
+		margin: 0;
+		font-size: 0.9rem;
+		color: #3d4650;
+	}
+
 	.entries {
 		margin: 0;
 		padding-left: 1.25rem;
 	}
 
+	.entries--multi {
+		padding-left: 0;
+		list-style: none;
+	}
+
+	.entries--multi .entry {
+		padding-bottom: 1.25rem;
+		margin-bottom: 1.25rem;
+		border-bottom: 1px solid #e4e8ec;
+	}
+
+	.entries--multi .entry:last-child {
+		margin-bottom: 0;
+		padding-bottom: 0;
+		border-bottom: none;
+	}
+
 	.entry {
 		margin-bottom: 1rem;
+	}
+
+	.entry-head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem 0.75rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.entry-word {
+		font-size: 1.2rem;
+		font-weight: 700;
+		letter-spacing: -0.02em;
+		color: #0d47a1;
+		text-decoration: none;
+	}
+
+	.entry-word:hover {
+		text-decoration: underline;
+		text-underline-offset: 2px;
 	}
 
 	.bro-badge {
