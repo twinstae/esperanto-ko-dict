@@ -1,46 +1,39 @@
-# Astro Starter Kit: Basics
+# Esperanto–Korean dictionary (CSR)
 
-```sh
-npm create astro@latest -- --template basics
-```
+A static Astro site: the home page and a single `/words` shell load dictionary data in the browser (`fetch` + IndexedDB). Lookup runs entirely on the client.
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+## Commands
 
-## 🚀 Project Structure
+| Command        | Action                                              |
+| -------------- | --------------------------------------------------- |
+| `bun install`  | Install dependencies                                |
+| `bun run dev`  | Dev server (default `localhost:4321`)             |
+| `bun run build`| Production build to `dist/`                         |
+| `bun run build:dict` | Regenerate `public/data/eo-ko.json` from `dict.xlsx` |
+| `bun test`     | Run tests                                           |
 
-Inside of your Astro project, you'll see the following folders and files:
+## Dictionary data
 
-```text
-/
-├── public/
-│   └── favicon.svg
-├── src
-│   ├── assets
-│   │   └── astro.svg
-│   ├── components
-│   │   └── Welcome.astro
-│   ├── layouts
-│   │   └── Layout.astro
-│   └── pages
-│       └── index.astro
-└── package.json
-```
+- Source: `dict.xlsx` (sheet **에-한**).
+- Generated JSON: `public/data/eo-ko.json` (run `bun run build:dict` after changing the spreadsheet).
 
-To learn more about the folder structure of an Astro project, refer to [our guide on project structure](https://docs.astro.build/en/basics/project-structure/).
+## URLs
 
-## 🧞 Commands
+- `/` — search form.
+- `/words/<lemma>` — lookup (e.g. `/words/Kate%C4%A5ismo` for `Kateĥismo`).
 
-All commands are run from the root of the project, from a terminal:
+### Static hosting and `/words/...`
 
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `npm install`             | Installs dependencies                            |
-| `npm run dev`             | Starts local dev server at `localhost:4321`      |
-| `npm run build`           | Build your production site to `./dist/`          |
-| `npm run preview`         | Preview your build locally, before deploying     |
-| `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `npm run astro -- --help` | Get help using the Astro CLI                     |
+The app is one HTML shell at `words/index.html`. Direct requests to `/words/something` need a **rewrite** so the server serves that HTML while the browser URL stays `/words/something`.
 
-## 👀 Want to learn more?
+- **Netlify**: [`public/_redirects`](public/_redirects) is copied into `dist/`.
+- **Vercel**: [`vercel.json`](vercel.json) rewrites `/words/:path*` → `/words/index.html`.
+- **GitHub Pages** (no server rewrites): use a host that supports SPA-style rewrites, or duplicate the common “copy `index.html` to `404.html`” pattern, or use hash-based URLs instead.
 
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+Local dev uses a small Vite middleware in [`astro.config.mjs`](astro.config.mjs) so `/words/<lemma>` resolves without extra config.
+
+## Project layout
+
+- [`src/lib/dict-store.ts`](src/lib/dict-store.ts) — fetch JSON, IndexedDB, lookup.
+- [`src/lib/xlsx-eo-han.ts`](src/lib/xlsx-eo-han.ts) — XLSX → entries (build script and tests).
+- [`scripts/xlsx-to-json.ts`](scripts/xlsx-to-json.ts) — CLI to emit `public/data/eo-ko.json`.

@@ -1,0 +1,266 @@
+---
+import Layout from "../../layouts/Layout.astro";
+---
+
+<Layout title="Word lookup — Esperanto–Korean">
+	<main class="word-page">
+		<header class="word-top">
+			<nav class="back">
+				<a href={import.meta.env.BASE_URL}>Home</a>
+			</nav>
+			<form class="words-search" id="words-search" action="#" method="get">
+				<label class="sr-only" for="words-q">Search Esperanto word</label>
+				<input
+					id="words-q"
+					name="q"
+					type="search"
+					autocomplete="off"
+					placeholder="Search another word…"
+				/>
+				<button type="submit">Search</button>
+			</form>
+		</header>
+		<div id="word-root" class="word-root" aria-live="polite">
+			<p class="status">Loading dictionary…</p>
+		</div>
+	</main>
+</Layout>
+
+<script>
+	import { ensureDictLoaded, getLinkifyContext, lookupLemma } from "../../lib/dict-store";
+	import { renderMeaningToFragment } from "../../lib/meaning-linkify-dom";
+	import { parseLemmaFromPath, wordsPageHref } from "../../lib/words-route";
+
+	const root = document.getElementById("word-root");
+	const wordsSearch = document.getElementById("words-search");
+	const wordsQ = document.getElementById("words-q");
+
+	if (wordsSearch instanceof HTMLFormElement) {
+		wordsSearch.addEventListener("submit", (e) => {
+			e.preventDefault();
+			const data = new FormData(wordsSearch);
+			const q = String(data.get("q") ?? "").trim();
+			if (!q) return;
+			window.location.href = wordsPageHref(q, import.meta.env.BASE_URL);
+		});
+	}
+
+	function clearRoot() {
+		if (!root) return;
+		root.replaceChildren();
+	}
+
+	function el<K extends keyof HTMLElementTagNameMap>(
+		tag: K,
+		opts: { class?: string; text?: string },
+	) {
+		const node = document.createElement(tag);
+		if (opts.class) node.className = opts.class;
+		if (opts.text !== undefined) node.textContent = opts.text;
+		return node;
+	}
+
+	async function run() {
+		if (!root) return;
+		const lemma = parseLemmaFromPath(window.location.pathname, import.meta.env.BASE_URL);
+		if (wordsQ instanceof HTMLInputElement) {
+			wordsQ.value = lemma ?? "";
+		}
+		if (lemma === null) {
+			clearRoot();
+			root.appendChild(
+				el("p", {
+					class: "empty",
+					text: "No word in the URL. Enter a word above or use the home page.",
+				}),
+			);
+			return;
+		}
+
+		const title = document.querySelector("title");
+		if (title) title.textContent = `${lemma} — Esperanto–Korean`;
+
+		try {
+			await ensureDictLoaded();
+			const [entries, linkCtx] = await Promise.all([
+				lookupLemma(lemma),
+				getLinkifyContext(),
+			]);
+			clearRoot();
+
+			if (entries.length === 0) {
+				root.appendChild(
+					el("p", { class: "empty", text: `No entries found for “${lemma}”.` }),
+				);
+				return;
+			}
+
+			const heading = el("h1", { class: "lemma", text: entries[0]?.word ?? lemma });
+			root.appendChild(heading);
+
+			const base = import.meta.env.BASE_URL;
+			const list = el("ol", { class: "entries" });
+			for (const e of entries) {
+				const li = el("li", { class: "entry" });
+				if (e.broLevel) {
+					const badge = document.createElement("span");
+					badge.className = "bro-badge";
+					badge.setAttribute("title", "BRO level");
+					badge.textContent = e.broLevel;
+					li.appendChild(badge);
+				}
+				const meaningP = el("p", { class: "meaning" });
+				meaningP.appendChild(renderMeaningToFragment(e.meaning, linkCtx, base, lemma));
+				li.appendChild(meaningP);
+				list.appendChild(li);
+			}
+			root.appendChild(list);
+		} catch (err) {
+			clearRoot();
+			const msg = err instanceof Error ? err.message : String(err);
+			root.appendChild(el("p", { class: "err", text: `Could not load dictionary: ${msg}` }));
+		}
+	}
+
+	run();
+</script>
+
+<style>
+	.word-page {
+		max-width: 40rem;
+		margin: 0 auto;
+		padding: 1.25rem 1.25rem 3rem;
+		box-sizing: border-box;
+		min-height: 100%;
+	}
+
+	.word-top {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		margin-bottom: 1.25rem;
+	}
+
+	.words-search {
+		display: flex;
+		width: 100%;
+		gap: 0.5rem;
+	}
+
+	.words-search input {
+		flex: 1;
+		min-width: 0;
+		padding: 0.55rem 0.75rem;
+		font-size: 1rem;
+		border: 1px solid #c9d1d9;
+		border-radius: 8px;
+	}
+
+	.words-search button {
+		padding: 0.55rem 1rem;
+		font-size: 1rem;
+		font-weight: 600;
+		color: #fff;
+		background: #0d47a1;
+		border: none;
+		border-radius: 8px;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+
+	.words-search button:hover {
+		background: #0a3d88;
+	}
+
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		border: 0;
+	}
+
+	.back {
+		margin-bottom: 0;
+	}
+
+	.back a {
+		color: #0d47a1;
+		text-decoration: none;
+		font-weight: 500;
+	}
+
+	.back a:hover {
+		text-decoration: underline;
+	}
+
+	.word-root {
+		line-height: 1.55;
+	}
+
+	.status,
+	.empty {
+		margin: 0;
+		color: #3d4650;
+	}
+
+	.err {
+		margin: 0;
+		color: #b00020;
+	}
+
+	.lemma {
+		margin: 0 0 1rem;
+		font-size: 1.75rem;
+		font-weight: 700;
+		letter-spacing: -0.02em;
+	}
+
+	.entries {
+		margin: 0;
+		padding-left: 1.25rem;
+	}
+
+	.entry {
+		margin-bottom: 1rem;
+	}
+
+	.bro-badge {
+		display: inline-block;
+		margin: 0 0 0.5rem;
+		padding: 0.2rem 0.55rem;
+		font-size: 0.75rem;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		color: #1a237e;
+		background: #e8eaf6;
+		border: 1px solid #c5cae9;
+		border-radius: 999px;
+		vertical-align: middle;
+	}
+
+	.meaning {
+		margin: 0;
+		white-space: pre-wrap;
+	}
+
+	.meaning :global(.meaning-link) {
+		color: #0d47a1;
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+
+	.meaning :global(.meaning-link:hover) {
+		color: #0a3d88;
+	}
+
+	.meaning :global(.meaning-hit) {
+		background: #fff59d;
+		color: inherit;
+		padding: 0 0.05em;
+		border-radius: 2px;
+	}
+</style>
