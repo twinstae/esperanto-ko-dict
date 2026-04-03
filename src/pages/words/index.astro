@@ -28,6 +28,7 @@ import Layout from "../../layouts/Layout.astro";
 
 <script>
 	import { ensureDictLoaded, getLinkifyContext, lookupLemma } from "../../lib/dict-store";
+	import { lemmaToSurfaceCopy } from "../../lib/lemma-surface";
 	import { renderMeaningToFragment } from "../../lib/meaning-linkify-dom";
 	import { parseLemmaFromPath, wordsPageHref } from "../../lib/words-route";
 
@@ -58,6 +59,32 @@ import Layout from "../../layouts/Layout.astro";
 		if (opts.class) node.className = opts.class;
 		if (opts.text !== undefined) node.textContent = opts.text;
 		return node;
+	}
+
+	function copySurfaceButton(word: string): HTMLButtonElement {
+		const surface = lemmaToSurfaceCopy(word);
+		const btn = document.createElement("button");
+		btn.type = "button";
+		btn.className = "copy-surface-btn";
+		btn.setAttribute("aria-label", `Copy “${surface}” to clipboard`);
+		btn.title = `Copy: ${surface}`;
+		btn.textContent = "Copy";
+		btn.addEventListener("click", async () => {
+			const reset = "Copy";
+			try {
+				await navigator.clipboard.writeText(surface);
+				btn.textContent = "Copied";
+				setTimeout(() => {
+					btn.textContent = reset;
+				}, 1600);
+			} catch {
+				btn.textContent = "Failed";
+				setTimeout(() => {
+					btn.textContent = reset;
+				}, 1600);
+			}
+		});
+		return btn;
 	}
 
 	async function run() {
@@ -105,7 +132,12 @@ import Layout from "../../layouts/Layout.astro";
 			if (entries.length === 1) {
 				const sole = entries[0];
 				if (!sole) return;
-				root.appendChild(el("h1", { class: "lemma", text: sole.word ?? lemma }));
+				const headword = sole.word ?? lemma;
+				const lemmaRow = document.createElement("div");
+				lemmaRow.className = "lemma-row";
+				lemmaRow.appendChild(el("h1", { class: "lemma", text: headword }));
+				lemmaRow.appendChild(copySurfaceButton(headword));
+				root.appendChild(lemmaRow);
 				const list = el("ol", { class: "entries entries--single" });
 				const li = el("li", { class: "entry" });
 				if (sole.broLevel) {
@@ -144,6 +176,7 @@ import Layout from "../../layouts/Layout.astro";
 				wordLink.href = wordsPageHref(e.word, base);
 				wordLink.textContent = e.word;
 				head.appendChild(wordLink);
+				head.appendChild(copySurfaceButton(e.word));
 				if (e.broLevel) {
 					const badge = document.createElement("span");
 					badge.className = "bro-badge";
@@ -243,66 +276,83 @@ import Layout from "../../layouts/Layout.astro";
 	.word-root {
 		line-height: 1.55;
 	}
+</style>
 
-	.status,
-	.empty {
+<!-- CSR-injected nodes have no Astro scope attrs; keep under .word-root so styles stay on this page -->
+<style is:global>
+	.word-root .status,
+	.word-root .empty {
 		margin: 0;
 		color: #3d4650;
 	}
 
-	.err {
+	.word-root .err {
 		margin: 0;
 		color: #b00020;
 	}
 
-	.lemma-block {
+	.word-root .lemma-block {
 		margin-bottom: 1rem;
 	}
 
-	.lemma {
+	.word-root .lemma-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem 0.75rem;
+		margin-bottom: 1rem;
+	}
+
+	.word-root .lemma-row .lemma {
+		margin: 0;
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+
+	.word-root .lemma {
 		margin: 0 0 1rem;
 		font-size: 1.75rem;
 		font-weight: 700;
 		letter-spacing: -0.02em;
 	}
 
-	.lemma--query {
+	.word-root .lemma--query {
 		margin-bottom: 0.35rem;
 	}
 
-	.results-hint {
+	.word-root .results-hint {
 		margin: 0;
 		font-size: 0.9rem;
 		color: #3d4650;
 	}
 
-	.entries {
+	.word-root .entries {
 		margin: 0;
 		padding-left: 1.25rem;
 	}
 
-	.entries--multi {
+	.word-root .entries--multi {
 		padding-left: 0;
 		list-style: none;
 	}
 
-	.entries--multi .entry {
+	.word-root .entries--multi .entry {
 		padding-bottom: 1.25rem;
 		margin-bottom: 1.25rem;
 		border-bottom: 1px solid #e4e8ec;
 	}
 
-	.entries--multi .entry:last-child {
+	.word-root .entries--multi .entry:last-child {
 		margin-bottom: 0;
 		padding-bottom: 0;
 		border-bottom: none;
 	}
 
-	.entry {
+	.word-root .entry {
 		margin-bottom: 1rem;
 	}
 
-	.entry-head {
+	.word-root .entry-head {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
@@ -310,7 +360,7 @@ import Layout from "../../layouts/Layout.astro";
 		margin-bottom: 0.5rem;
 	}
 
-	.entry-word {
+	.word-root .entry-word {
 		font-size: 1.2rem;
 		font-weight: 700;
 		letter-spacing: -0.02em;
@@ -318,12 +368,30 @@ import Layout from "../../layouts/Layout.astro";
 		text-decoration: none;
 	}
 
-	.entry-word:hover {
+	.word-root .entry-word:hover {
 		text-decoration: underline;
 		text-underline-offset: 2px;
 	}
 
-	.bro-badge {
+	.word-root .copy-surface-btn {
+		min-height: 2.75rem;
+		padding: 0.65rem 1.15rem;
+		font-size: 1rem;
+		font-weight: 600;
+		color: #fff;
+		background: #0d47a1;
+		border: none;
+		border-radius: 8px;
+		cursor: pointer;
+		flex-shrink: 0;
+		font-family: inherit;
+	}
+
+	.word-root .copy-surface-btn:hover {
+		background: #0a3d88;
+	}
+
+	.word-root .bro-badge {
 		display: inline-block;
 		margin: 0 0 0.5rem;
 		padding: 0.2rem 0.55rem;
@@ -337,22 +405,22 @@ import Layout from "../../layouts/Layout.astro";
 		vertical-align: middle;
 	}
 
-	.meaning {
+	.word-root .meaning {
 		margin: 0;
 		white-space: pre-wrap;
 	}
 
-	.meaning :global(.meaning-link) {
+	.word-root .meaning .meaning-link {
 		color: #0d47a1;
 		text-decoration: underline;
 		text-underline-offset: 2px;
 	}
 
-	.meaning :global(.meaning-link:hover) {
+	.word-root .meaning .meaning-link:hover {
 		color: #0a3d88;
 	}
 
-	.meaning :global(.meaning-hit) {
+	.word-root .meaning .meaning-hit {
 		background: #fff59d;
 		color: inherit;
 		padding: 0 0.05em;
