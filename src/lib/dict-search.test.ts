@@ -19,7 +19,7 @@ describe("expandLemmaLookupKeys", () => {
 		expect(keys).toContain("bel-i");
 	});
 
-	test("plural -oj / -ojn and accusative -n prefer noun stem-o", () => {
+	test("plural -j / -ojn and accusative -n prefer noun stem-o", () => {
 		const keys = expandLemmaLookupKeys("spionoj");
 		expect(keys).toContain("spion-o");
 		expect(keys).toContain("spion-i");
@@ -58,6 +58,42 @@ describe("expandLemmaLookupKeys", () => {
 	test("tien resolves to tie before ti-o", () => {
 		const keys = expandLemmaLookupKeys("tien");
 		expect(keys.indexOf("tie")).toBeLessThan(keys.indexOf("ti-o"));
+	});
+
+	test("plural accusative -ojn maps to noun stem-o", () => {
+		const keys = expandLemmaLookupKeys("spionojn");
+		expect(keys).toContain("spion-o");
+		expect(keys).toContain("spion-i");
+	});
+
+	test("kaj keeps final -j (does not peel to two-letter stem)", () => {
+		const keys = expandLemmaLookupKeys("kaj");
+		expect(keys).toContain("kaj");
+		expect(keys).not.toContain("ka-o");
+	});
+
+	test("-o stem peels participle -ant- (lernanto → lern- lemmas)", () => {
+		expect(expandLemmaLookupKeys("lernanto")).toContain("lern-i");
+	});
+
+	test("-o stem + -ul-: derivational expansion runs morph variants (pliverdulo → verd-a)", () => {
+		expect(expandLemmaLookupKeys("pliverdulo")).toContain("verd-a");
+	});
+
+	test("expandMorphologicalVariants strips bare -ebl (not -eble/-ebla)", () => {
+		const v = expandMorphologicalVariants("fuŝebl");
+		expect(v.has("fuŝ")).toBe(true);
+	});
+
+	test("adverb -e: compound tails -land- and -temp-", () => {
+		const land = expandLemmaLookupKeys("interlande");
+		expect(land).toContain("inter-a");
+		expect(land).toContain("inter-o");
+		expect(land).toContain("inter-i");
+		const temp = expandLemmaLookupKeys("multtempe");
+		expect(temp).toContain("mult-a");
+		expect(temp).toContain("mult-o");
+		expect(temp).toContain("mult-i");
 	});
 });
 

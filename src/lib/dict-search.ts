@@ -35,8 +35,7 @@ const PREFIXES_LONGEST_FIRST = [
  */
 const SUFFIXES_LONGEST_FIRST = [
 	"ojn",
-	"oj",
-	// Plural -j (belaj → bela; novaj → nova) — after -oj/-ojn so spionoj still uses -oj
+	// Plural -j before -oj parse (verduloj → verdulo + j, not verdul + oj)
 	"j",
 	// Accusative -n before any -on parse: paroladon → parolado + n, not parolad + on
 	"n",
@@ -57,6 +56,46 @@ const SUFFIXES_LONGEST_FIRST = [
 
 const IĜ = "iĝ";
 const IG = "ig";
+
+/** Active/passive participle endings before verbal suffix chains (-ig-, -iĝ-). */
+const PARTICIPLE_SUFFIXES_LONGEST_FIRST = ["ant", "int", "ont", "at", "it", "ot"] as const;
+
+/** Derivational suffixes on noun stems (verdul-o → verd-a; lernejo → lern-i). `-ian` before `-an` (italiano → ital-). */
+const DERIV_SUFFIXES_LONGEST_FIRST = ["ist", "ian", "ul", "in", "an", "ej"] as const;
+
+/**
+ * Productive compound right-hand roots when an adverb in -e is written solid (tutmonde → tut-mond- → tut-a).
+ */
+const COMPOUND_TAIL_AFTER_E = ["mond", "land", "temp"] as const;
+
+function stripOneParticipleSuffix(stem: string): string | null {
+	for (const s of PARTICIPLE_SUFFIXES_LONGEST_FIRST) {
+		if (stem.length > s.length + 2 && stem.endsWith(s)) {
+			return stem.slice(0, -s.length);
+		}
+	}
+	return null;
+}
+
+function tryDerivationalSuffixStrips(
+	stem: string,
+	out: string[],
+	seen: Set<string>,
+	variants: Set<string>,
+	depth: number,
+) {
+	for (const s of DERIV_SUFFIXES_LONGEST_FIRST) {
+		if (stem.length <= s.length + 3 || !stem.endsWith(s)) continue;
+		const base = stem.slice(0, -s.length);
+		if (base.length < 2) continue;
+		pushBareRootHyphens(base, out, seen);
+		for (const mv of expandMorphologicalVariants(base)) {
+			if (mv !== base) {
+				expandInflectionKeysFromSurface(mv, out, seen, depth + 1, true, variants);
+			}
+		}
+	}
+}
 
 function pushUnique(out: string[], seen: Set<string>, key: string) {
 	if (!key || seen.has(key)) return;
@@ -174,8 +213,12 @@ function expandInflectionKeysFromSurface(
 		if (stem.length < 1) continue;
 
 		if (suf === "j") {
-			expandInflectionKeysFromSurface(stem, out, seen, depth + 1, allowBare, variants);
-			return;
+			// Avoid kaj → ka (stem too short).
+			if (stem.length >= 3) {
+				expandInflectionKeysFromSurface(stem, out, seen, depth + 1, allowBare, variants);
+				return;
+			}
+			continue;
 		}
 
 		if (suf === "n") {
@@ -197,7 +240,7 @@ function expandInflectionKeysFromSurface(
 			return;
 		}
 
-		if (suf === "ojn" || suf === "oj") {
+		if (suf === "ojn") {
 			pushUnique(out, seen, toWordNormCi(`${stem}-o`));
 			pushUnique(out, seen, toWordNormCi(`${stem}-i`));
 			return;
@@ -206,6 +249,12 @@ function expandInflectionKeysFromSurface(
 		if (suf === "o") {
 			pushUnique(out, seen, toWordNormCi(`${stem}-o`));
 			pushUnique(out, seen, toWordNormCi(`${stem}-i`));
+			tryDerivationalSuffixStrips(stem, out, seen, variants, depth + 1);
+			const afterPart = stripOneParticipleSuffix(stem);
+			if (afterPart) {
+				pushStemAfterVerbalSuffix(afterPart, out, seen, variants);
+				tryDerivationalSuffixStrips(afterPart, out, seen, variants, depth + 1);
+			}
 			return;
 		}
 
@@ -218,13 +267,27 @@ function expandInflectionKeysFromSurface(
 			pushUnique(out, seen, toWordNormCi(`${stem}-a`));
 			pushUnique(out, seen, toWordNormCi(`${stem}-o`));
 			pushUnique(out, seen, toWordNormCi(`${stem}-i`));
+			const afterPart = stripOneParticipleSuffix(stem);
+			if (afterPart) {
+				pushStemAfterVerbalSuffix(afterPart, out, seen, variants);
+			}
 			return;
 		}
 
 		if (suf === "e") {
+			// Adverbs in -e usually come from adjectives in -a (sincere → sincer-a).
+			pushUnique(out, seen, toWordNormCi(`${stem}-a`));
 			pushUnique(out, seen, toWordNormCi(`${stem}-e`));
 			pushUnique(out, seen, toWordNormCi(`${stem}-o`));
 			pushUnique(out, seen, toWordNormCi(`${stem}-i`));
+			for (const tail of COMPOUND_TAIL_AFTER_E) {
+				if (stem.length > tail.length + 2 && stem.endsWith(tail)) {
+					const left = stem.slice(0, -tail.length);
+					if (left.length >= 3) {
+						pushBareRootHyphens(left, out, seen);
+					}
+				}
+			}
 			return;
 		}
 	}
@@ -236,27 +299,12 @@ function expandInflectionKeysFromSurface(
 	}
 }
 
-/**
- * Headword lookup keys to try in order (first successful IndexedDB match wins).
- *
- * Covers typical Esperanto surface forms, including (among others):
- * plural / case (-oj, -ojn, -j for adjective plural belaj → bela); accusative (-n before -o: saluton, paroladon → parolado + n);
- * mal-/mis- + hyphen reinjection (malnova → malnov-a before nov-a);
- * verbal endings (-as, -is, -os, -us, -u, infinitive -i);
- * accusative -n (belan → bel-a; long …en verb roots skip false -n);
- * compound endings -eble / -ebla / -ado before bare -o; prefixes mal-, mis-, ne-, sen-, ek-, re-, dis-, for-, fi-, bo-, ge-, pli-;
- * iĝ / ig stems (proksimiĝis → proksim-a; plibonigi → bon-a); bare verb stem (kompren → kompren-i);
- * unhyphenated correlatives (tien → tie). Ellipsis headwords and gloss fallback are handled in {@link searchDictionaryEntries}.
- */
+/** Sub-key expansion for mal-/mis- rest slices ({@link injectMalMisHyphenPrefixes}); `norm` has no hyphens. */
 function expandLemmaLookupKeysCore(norm: string): string[] {
 	const out: string[] = [];
 	const seen = new Set<string>();
 
 	pushUnique(out, seen, norm);
-
-	if (norm.includes("-")) {
-		return out;
-	}
 
 	if (/(ismo|ism)$/u.test(norm)) {
 		return out;
@@ -293,6 +341,18 @@ function injectMalMisHyphenPrefixes(norm: string, out: string[], seen: Set<strin
 	}
 }
 
+/**
+ * Headword lookup keys to try in order (first successful IndexedDB match wins).
+ *
+ * Covers typical Esperanto surface forms, including (among others):
+ * plural / case (-ojn, -j so verduloj → verdulo + j; belaj → bela); accusative (-n before -o: saluton, paroladon → parolado + n);
+ * mal-/mis- + hyphen reinjection (malnova → malnov-a before nov-a);
+ * verbal endings (-as, -is, -os, -us, -u, infinitive -i);
+ * accusative -n (belan → bel-a; long …en verb roots skip false -n);
+ * compound endings -eble / -ebla / -ado before bare -o; prefixes mal-, mis-, ne-, sen-, ek-, re-, dis-, for-, fi-, bo-, ge-, pli-;
+ * iĝ / ig stems (proksimiĝis → proksim-a; plibonigi → bon-a); bare verb stem (kompren → kompren-i);
+ * unhyphenated correlatives (tien → tie). Ellipsis headwords and gloss fallback are handled in {@link searchDictionaryEntries}.
+ */
 export function expandLemmaLookupKeys(raw: string): string[] {
 	const out: string[] = [];
 	const seen = new Set<string>();

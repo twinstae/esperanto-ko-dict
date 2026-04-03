@@ -149,4 +149,24 @@ describe("searchDictionaryEntries against eo-ko.json", () => {
 			expectHasWord(r, "nov-a");
 		}
 	});
+
+	test("sincere → sincer-a (-e adverb from adjective)", () => {
+		const r = searchDictionaryEntries(entries, "sincere");
+		expectHasWord(r, "sincer-a");
+	});
+
+	test("Verduloj → verd-a (plural -j before false …oj; -ul- derivational)", () => {
+		const r = searchDictionaryEntries(entries, "Verduloj");
+		expectHasWord(r, "verd-a");
+	});
+
+	test("limigitaj → Lim-o (participle -it- + -ig- chain on …-aj)", () => {
+		const r = searchDictionaryEntries(entries, "limigitaj");
+		expectHasWord(r, "Lim-o");
+	});
+
+	test("tutmonde → tut-a (solid …monde + compound tail)", () => {
+		const r = searchDictionaryEntries(entries, "tutmonde");
+		expectHasWord(r, "tut-a");
+	});
 });
